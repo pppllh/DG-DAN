@@ -182,19 +182,12 @@ class GraphModel(nn.Module):
 
             #（局部）
             local_edge_index = mt_edge_index[:, all_edge_label == 1]   
-            #local_edge_count = mt_edge_count[all_edge_label == 1]
             edge_count = data.edge_count  
             intra_hidden, intra_item_emb = self.srgnn(data, embedding,local_edge_index,edge_count,mt_batch, local_sess_avg,rebuilt_last_item,is_training, i)          
-
-            ###########################################################################################
 
             l0_penalty_ = 0  # 全局边预测过程得到的正则化数值
             #（全局）
             inter_hidden, inter_item_emb, l0_penalty_ = self.group_graph.forward(i,epoch,embedding, data, local_sess_avg,rebuilt_last_item ,is_training=is_training)
-            dropout_global = False# True#   #控制是否对全局项目表示进行dropout！！！（注意：和group_graph类里面的dropout的混淆使用）
-            if dropout_global:
-                inter_hidden = F.dropout(inter_hidden, 0.6, training=self.training)  # 控制是否对全局图中得到的项目表示进行dropout
-
 
             # (验证单局部图/单全局图时用下一行)
             # final_s = self.cnn_fusing.get_final_s_GCE_GNN(inter_item_emb, data.sequence_len, data.reverse_pos) # HG_GNN,用此行时，记得去注释get_final_s的第一行
