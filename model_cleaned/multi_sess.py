@@ -20,10 +20,8 @@ from datetime import datetime
 
 def draw_graph(nodes_tensor, edges_tensor, weights_tensor=None):
     nodes = nodes_tensor.cpu().flatten().tolist()
-    # 将边 Tensor 转换为元组列表
     edges = list(zip(edges_tensor[0].cpu().tolist(), edges_tensor[1].cpu().tolist()))
     if weights_tensor is None:
-        # 如果未提供权重张量，默认权重为 0
         weights = [0] * len(edges)
     else:
         weights = weights_tensor.cpu().flatten().tolist()
@@ -48,18 +46,18 @@ def draw_graph(nodes_tensor, edges_tensor, weights_tensor=None):
 
 class LightGCNConv(MessagePassing):
     def __init__(self):
-        super(LightGCNConv, self).__init__(aggr='add')  # 聚合操作使用 "加法"
+        super(LightGCNConv, self).__init__(aggr='add') 
     def forward(self, x, edge_index):
         edge_index, _ = add_self_loops(edge_index) 
         row, col = edge_index  
-        deg = degree(col, x.size(0), dtype=x.dtype)  #
+        deg = degree(col, x.size(0), dtype=x.dtype)  
         #eps = 1e-10
         #deg_inv_sqrt = (deg + eps).pow(-0.5)
         deg_inv_sqrt = deg.pow(-0.5) 
         norm = deg_inv_sqrt[row] * deg_inv_sqrt[col]
         return self.propagate(edge_index, x=x, norm=norm)
     def message(self, x_j, norm):
-        return norm.view(-1, 1) * x_j   # 消息传递过程中的消息，邻居节点特征乘以归一化的度
+        return norm.view(-1, 1) * x_j   
 
 class LightGCN(torch.nn.Module):
     def __init__(self, hidden_size, num_layers):
@@ -79,19 +77,19 @@ class GroupGraph(Module):
     def __init__(self, n_node, hidden_size, dropout=0.5, negative_slope=0.2, heads=8, item_fusing=False, l0_para=None):
         super(GroupGraph, self).__init__()
         self.hidden_size = hidden_size
-        self.embedding_edge = nn.Embedding(n_node, self.hidden_size)  # 单独为边预测时给一个嵌入表
+        self.embedding_edge = nn.Embedding(n_node, self.hidden_size)  
         self.item_fusing = item_fusing
         self.global_dropout = dropout
-        self.l0_para = eval(l0_para)  # l0正则化参数 /使用了 eval 函数来将字符串表示的列表转换为实际的列表对象
+        self.l0_para = eval(l0_para) 
         self.linkp = LinkPred(self.hidden_size, self.hidden_size//2, self.l0_para)
         self.sgcn = SGConv(in_channels=hidden_size, out_channels=hidden_size, K=2, add_self_loops=False)
         self.lightgcn = LightGCN(hidden_size=hidden_size, num_layers=1)
-        self.gated = GatedGraphConv(self.hidden_size, num_layers=1)  # self.hidden_size：定义了输出特征的维度
+        self.gated = GatedGraphConv(self.hidden_size, num_layers=1)  
         self.gru = nn.GRUCell(1 * self.hidden_size, self.hidden_size)
 
 
     def rebuilt_sess(self, session_embedding, node_num, sess_item_index, seq_lens):
-        split_embs = torch.split(session_embedding, tuple(node_num))  #节点特征分布到各个全局图中
+        split_embs = torch.split(session_embedding, tuple(node_num))  
         sess_item_index = torch.split(sess_item_index, tuple(seq_lens.cpu().numpy()))
         rebuilt_sess = []
         for embs, index in zip(split_embs, sess_item_index):
