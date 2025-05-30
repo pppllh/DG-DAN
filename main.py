@@ -5,7 +5,7 @@ import time
 import torch
 from tqdm import tqdm
 from data.multi_sess_graph0924 import *     
-from torch_geometric.loader import DataLoader #用于加载图数据集的 DataLoader
+from torch_geometric.loader import DataLoader 
 from model_cleand.model import GraphModel
 from train import forward
 from tensorboardX import SummaryWriter
@@ -18,14 +18,14 @@ parser.add_argument('--dataset', default='tmall', help='dataset name: Retailrock
 parser.add_argument('--batch_size', type=int, default=100, help='input batch size')
 parser.add_argument('--hidden_size', type=int, default=100, help='hidden state size')
 parser.add_argument('--epoch', type=int, default=9, help='the number of epochs to train for')
-parser.add_argument('--lr', type=float, default=0.001, help='learning rate')  #原为0.001 [0.001, 0.0005, 0.0001]
+parser.add_argument('--lr', type=float, default=0.001, help='learning rate') 
 parser.add_argument('--lr_dc', type=float, default=0.1, help='learning rate decay rate')
 parser.add_argument('--lr_dc_step', type=int, default=3, help='the number of steps after which the learning rate decay')
-parser.add_argument('--l2', type=float, default=1e-7, help='l2 penalty')  # [0.001, 0.0005, 0.0001, 0.00005, 0.00001]
-parser.add_argument('--l0', type=float, default=0.3, help='l0正则化')  # [0.001, 0.0005, 0.0001, 0.00005, 0.00001]
+parser.add_argument('--l2', type=float, default=1e-7, help='l2 penalty') 
+parser.add_argument('--l0', type=float, default=0.3, help='l0正则化') 
 parser.add_argument('--top_k', type=int, default=20, help='top K indicator for evaluation')
 parser.add_argument('--negative_slope', type=float, default=0.2, help='negative_slope')
-parser.add_argument('--global_dropout', type=float, default=0.0, help='全局中删边后dropout,设置为0相当于不用dro')
+parser.add_argument('--global_dropout', type=float, default=0.0, help='全局中删边后dropout')
 parser.add_argument('--heads', type=int, default=8, help='gat heads number')
 parser.add_argument('--num_filters', type=int, default=2, help='gat heads number')
 parser.add_argument('--using_represent', type=str, default='comb', help='comb, h_s, h_group')
@@ -63,8 +63,6 @@ def main():
 
     if opt.dataset == 'diginetica':
         n_node = 39055
-    elif opt.dataset == 'yoochoose1_64':
-        n_node = 17597
     elif opt.dataset == 'tmall':
         n_node = 40727  
     elif opt.dataset == 'nowplaying':
