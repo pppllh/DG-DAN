@@ -45,18 +45,11 @@ class LinkPred(nn.Module):
         member variables.
         """
         super(LinkPred, self).__init__()
-        # self.mlp_forward = nn.Sequential(
-        #                 nn.Linear(D_in * 1, H, bias=False), #这里的维度要根据下面的形式进行相应修改！
-        #                 nn.ReLU()
-        #                 nn.Linear(H, 1, bias=False),
-        #                 )
-        self.mlp_forward = nn.Linear(D_in * 1, 1, bias=False) #改为只要线性层
-        self.W_miu = nn.Linear(D_in * 2, 1, bias=False) #改为只要线性层
-        self.W_sigma = nn.Linear(D_in * 2, 1, bias=False) #改为只要线性层
-        self.mlp_backward = nn.Sequential(
-                        nn.Linear(D_in * 1, H),
-                        nn.ReLU(),
-                        nn.Linear(H, 1))
+        self.mlp_forward = nn.Sequential(
+                        nn.Linear(D_in * 1, H, bias=False), 
+                        nn.ReLU()
+                        nn.Linear(H, 1, bias=False),
+                        )
         self.sigmoid = nn.Sigmoid()
         self.We = nn.Linear(D_in * 2, D_in,bias=False)
         self.W_1 = nn.Linear(D_in * 1, D_in,bias=True)
@@ -74,10 +67,8 @@ class LinkPred(nn.Module):
             _input4fea = self.We(torch.cat((sender_emb4fea,receiver_emb4fea),dim=-1))   #③拼接后线性变换到d维，改mlp的线性层维度为D_in*2
         elif input_alter == 4:  #直接利用发送节点的表示
             _input4fea = sender_emb4fea
-        # 获取每条边的会话编号
-        sender_edge_sessions = batch[edge_index[0]]  # 假设边的源节点和目标节点属于同一个会话
-        rece_edge_sessions = batch[edge_index[1]]  # 假设边的源节点和目标节点属于同一个会话
-        #获取每条边对应的会话向量
+        sender_edge_sessions = batch[edge_index[0]]  
+        rece_edge_sessions = batch[edge_index[1]]  
         session_emb4fea = avg[sender_edge_sessions]
 
         final_input_alter = 2
