@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from model_cleaned.ggnn import InOutGGNN
-from model_cleaned.InOutGat import InOutGATConv, InOutGATConv_intra
 from torch_geometric.nn import GCNConv, GATConv, SGConv, GatedGraphConv, global_mean_pool
 from torch_geometric.utils import softmax, add_self_loops
 from torch_geometric.nn.conv import MessagePassing
@@ -23,7 +21,7 @@ class SRGNN(nn.Module):
         self.hidden_size, self.n_node = hidden_size, n_node
         self.item_fusing = item_fusing
         self.embedding = nn.Embedding(self.n_node, self.hidden_size)
-        self.gated = GatedGraphConv(self.hidden_size, num_layers=1)  # self.hidden_size：定义了输出特征的维度 （层数问题！）
+        self.gated = GatedGraphConv(self.hidden_size, num_layers=1)
         self.local_agg = LocalAggregator(self.hidden_size)
         self.loss_function = nn.CrossEntropyLoss()
         self.reset_parameters()
@@ -44,8 +42,6 @@ class SRGNN(nn.Module):
             rebuilt_sess.append(sess)
         return tuple(rebuilt_sess)
 
-
-
     def forward(self,data, hidden, local_edge_index,local_edge_count,mt_batch, local_sess_avg,rebuilt_last_item,is_training, i):
         mt_sess_item_index, seq_len,  mt_sess_masks, local_num_count= \
             data.mt_sess_item_idx, data.sequence_len, data.mt_sess_masks, data.local_num_count
@@ -53,7 +49,6 @@ class SRGNN(nn.Module):
         use_self_loops = True#  False#
         if use_self_loops == True:
             # hidden = self.gated(hidden, local_edge_index)  #此行直接使用GGNN
-            #添加自环
             unique_node = torch.unique(local_edge_index).unsqueeze(0)
             edge_index_self = torch.cat((unique_node, unique_node), dim=0)
             edge_index_with_loops = torch.cat([local_edge_index, edge_index_self], dim=1)
@@ -66,11 +61,10 @@ class SRGNN(nn.Module):
             hidden = neibor_hidden
         else:
             neibor_hidden = self.local_agg(data,hidden, local_edge_index, local_sess_avg, rebuilt_last_item,
-                                           mt_sess_masks, i,  mt_batch,local_edge_count, local_num_count, is_training)  # 局部会话中进行的项目表示更新
-            new_hidden = self.gru(neibor_hidden, hidden)     # 考虑其他多种结合方式
+                                           mt_sess_masks, i,  mt_batch,local_edge_count, local_num_count, is_training) 
+            new_hidden = self.gru(neibor_hidden, hidden)    
 
             hidden = new_hidden
-
 
         sess_embs = self.rebuilt_sess(hidden, mt_batch, mt_sess_item_index, seq_len)
         if self.item_fusing:
@@ -89,7 +83,6 @@ class LocalAggregator(MessagePassing):  #beta new_beta
         self.W_backward = nn.Linear(1*self.dim*1 + 0, 1, bias=False) # 调整维度
         self.W_alpha_attention = nn.Linear(1*self.dim, 1, bias=False)
 
-
     def forward(self, data,x, edge_index, local_sess_avg,rebuilt_last_item, mt_sess_masks, i , batch=None, edge_weight=None, node_frequency=None, is_training = None,  use_forward=True):
         # Step 1: Source-to-Target message passing
         self.current_i = torch.tensor([i], dtype=torch.float, device=x.device)
@@ -102,7 +95,6 @@ class LocalAggregator(MessagePassing):  #beta new_beta
             is_training = is_training,
             flow="source_to_target", use_forward=True)
 
-
         # Combine the results (e.g., summing forward and backward messages)
         update_nodes = forward_nodes
         return update_nodes
@@ -114,34 +106,27 @@ class LocalAggregator(MessagePassing):  #beta new_beta
         edges_to_expand = edge_index[:, mask]
         symmetric_edges = torch.stack([edges_to_expand[1], edges_to_expand[0]], dim=0)
         expanded_edge_index = torch.cat([edge_index, symmetric_edges], dim=1)
-        expanded_x_j = x[expanded_edge_index[0]]  # 发送节点特征
-        expanded_x_i = x[expanded_edge_index[1]]  # 接收节点特征
-
+        expanded_x_j = x[expanded_edge_index[0]]  
+        expanded_x_i = x[expanded_edge_index[1]] 
         reversed_edge_index_j = symmetric_edges[0]
         reversed_edge_index_i = symmetric_edges[1]
         new_edge_index_i = expanded_edge_index[1]
         new_edge_index_j = expanded_edge_index[0]
-
         use_session_mean_as_alpha_query = True#False#
-        if use_session_mean_as_alpha_query == True:
-            session_mean_i = local_sess_avg[batch[new_edge_index_i]]    # 获取 x_i 所属的会话表示
-            alpha_query = session_mean_i
-        else:
-            last_item_i = rebuilt_last_item[batch[new_edge_index_i]]  # 获取 x_i 所属会话中最后一项的项目表示
-            alpha_query =last_item_i
-
+        session_mean_i = local_sess_avg[batch[new_edge_index_i]]   
+        alpha_query = session_mean_i
         node_frequency_i = node_frequency[edge_index_i]  # 获取目标节点的频率
         use_alpha = True#False#
-        alpha_attention_use_weight =False# True #    #控制是否使用权重（考虑不同的权重定义方法）  ！！
+        alpha_attention_use_weight =False# True #   
         if use_alpha and alpha_attention_use_weight:
-            alpha = F.leaky_relu(self.W_alpha_attention(expanded_x_i * alpha_query * node_frequency_i.unsqueeze(-1)))  #模拟GCE、SUGAR的形式
+            alpha = F.leaky_relu(self.W_alpha_attention(expanded_x_i * alpha_query * node_frequency_i.unsqueeze(-1)))  
         elif use_alpha and not alpha_attention_use_weight:
-            alpha = F.leaky_relu(self.W_alpha_attention(expanded_x_i * alpha_query))  #模拟GCE、SUGAR的形式
+            alpha = F.leaky_relu(self.W_alpha_attention(expanded_x_i * alpha_query)) 
         beta = (F.leaky_relu(self.W_forward(x_i * x_j)))
         reversed_beta = (F.leaky_relu(self.W_backward(x[reversed_edge_index_j] * x[reversed_edge_index_i])))
         new_beta = torch.cat([beta,reversed_beta])
         final_E = new_beta  + alpha    #直接相加
-        aij = softmax(final_E, new_edge_index_i)  # [Ei,1]   #这里直接用new_edge_index_i
+        aij = softmax(final_E, new_edge_index_i)  # [Ei,1]  
         pairwise_analysis = (aij * (expanded_x_j))
         return pairwise_analysis, reversed_edge_index_i
 
