@@ -6,7 +6,7 @@ import torch
 from tqdm import tqdm
 from data.multi_sess_graph0924 import *     
 from torch_geometric.loader import DataLoader #用于加载图数据集的 DataLoader
-from model.model import GraphModel
+from model_cleand.model import GraphModel
 from train import forward
 from tensorboardX import SummaryWriter
 import os
