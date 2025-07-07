@@ -89,11 +89,6 @@ class GraphModel(nn.Module):
         self.use_alternative_final_s = opt.use_alternative_final_s
         #定义线性层 or 自学习参数
         self.W_coo_15 = nn.Linear(2 * self.hidden_size, self.hidden_size)  # （注意输出维度的设置 1 or self.hidden_size）
-        # 16中 定义一致性向量和长度向量的全连接层
-        self.fc_coo = nn.Linear(self.hidden_size, self.hidden_size)  # 一致性输入
-        self.fc_length = nn.Linear(self.hidden_size, self.hidden_size)  # 长度输入
-        self.fc_out = nn.Linear(self.hidden_size * 1, 1)  # 输出融合系数
-        # 16中 定义一致性向量和长度向量的全连接层
         self.W_concat = nn.Linear(2 * self.hidden_size, self.hidden_size)
         self.W_sum_1 = nn.Linear(self.hidden_size, 1) # （注意输出维度的设置 1 or self.hidden_size）
         self.W_sum_2 = nn.Linear(self.hidden_size, 1) # （注意输出维度的设置 1 or self.hidden_size）
@@ -131,10 +126,9 @@ class GraphModel(nn.Module):
             rebuilt_sess.append(sess)
         return tuple(rebuilt_sess)
 
-
     def forward(self, data, i, epoch, is_training=True):
         if self.item_fusing:
-            mt_x = data.mt_x - 1  #此处有进行减一操作！！
+            mt_x = data.mt_x - 1  
             embedding = self.embedding(mt_x)
             embedding = embedding.squeeze()
             mt_edge_index, mt_edge_count, mt_batch, node_num, mt_sess_item_index, \
@@ -142,34 +136,26 @@ class GraphModel(nn.Module):
                 data.edge_index, data.mt_edge_count, data.batch, data.mt_node_num, data.mt_sess_item_idx, \
                     data.all_edge_label, data.mt_sess_masks, data.sequence_len, data.num_count
             reverse_pos = data.reverse_pos
-            # 根据local_mt_sess_item_index获得local_xulie_hidden；根据seq_lens生成seq_batch
-            v_i = torch.split(embedding, tuple(node_num.cpu().numpy()))  # 将整个 x 切分回图 G_i
+            v_i = torch.split(embedding, tuple(node_num.cpu().numpy()))  
             local_xulie_hidden = []
             rebuilt_last_item = []
             local_mt_sess_item_index = torch.split(mt_sess_item_index, tuple(seq_lens.cpu().numpy()))
             for node_indices, v in zip(local_mt_sess_item_index, v_i):
-                local_xulie_hidden.append(v[node_indices])  # 提取每个图的节点嵌入
-                sess = v[node_indices[-1]]# 提取每个图的最后一个节点的嵌入表示
+                local_xulie_hidden.append(v[node_indices]) 
+                sess = v[node_indices[-1]]
                 rebuilt_last_item.append(sess)
-            # 拼接所有图的节点嵌入
             local_xulie_hidden = torch.cat(local_xulie_hidden, dim=0) 
-            # 生成 seq_batch
             seq_lens_device = seq_lens.to(local_xulie_hidden.device)
             seq_batch = torch.repeat_interleave(torch.arange(len(seq_lens_device), device=local_xulie_hidden.device),seq_lens_device)
-            local_sess_avg = global_mean_pool(local_xulie_hidden, seq_batch)# 计算序列的平均表示
-            rebuilt_last_item = torch.stack(rebuilt_last_item, dim=0)# 将最后一个节点的嵌入表示拼接成一个张量
-
-            ###########################################################################################
-
+            local_sess_avg = global_mean_pool(local_xulie_hidden, seq_batch)
+            rebuilt_last_item = torch.stack(rebuilt_last_item, dim=0)
             #（局部）
             local_edge_index = mt_edge_index[:, all_edge_label == 1]   
             edge_count = data.edge_count  
             intra_hidden, intra_item_emb = self.srgnn(data, embedding,local_edge_index,edge_count,mt_batch, local_sess_avg,rebuilt_last_item,is_training, i)          
-
             l0_penalty_ = 0  # 全局边预测过程得到的正则化数值
             #（全局）
             inter_hidden, inter_item_emb, l0_penalty_ = self.group_graph.forward(i,epoch,embedding, data, local_sess_avg,rebuilt_last_item ,is_training=is_training)
-
             final_s_intra = self.cnn_fusing.get_final_s_GCE_GNN(intra_item_emb,data.sequence_len, data.reverse_pos) # tensor(B,dim)
             final_s_inter = self.cnn_fusing.get_final_s_GCE_GNN(inter_item_emb, data.sequence_len, data.reverse_pos) # tensor(B,dim)
             #得到会话个性化的session_features
@@ -184,34 +170,16 @@ class GraphModel(nn.Module):
                     coo_input_1 = v_mean - v_last
                     coo_input = torch.cat([coo_input_1, self.length_emb(session_lengths)],dim=-1)  # (B, 2*dim )
                     coo = torch.sigmoid(self.W_coo_15(coo_input))#.view(-1, 1) 
-              
-                elif use_alternative_coo == 5:  #1111replace
-                    coo = torch.ones(len(intra_item_emb), 1).to(final_s_intra.device)  # 全 1
-                elif use_alternative_coo == 6:
-                    coo = torch.zeros(len(intra_item_emb), 1).to(final_s_intra.device)  # 全 0 
-
-                session_features = coo #[B,1]  # 所有 session 的特征批量计算后直接返回
-
-            ###########################
-            #利用以上得到的session_features进行拼接
             use_alternative_final_s = self.use_alternative_final_s#2  #final_s的拼接方式选择
             if use_alternative_final_s == 1:
                 final_s = session_features * final_s_inter + (1 - session_features) * final_s_intra
             elif use_alternative_final_s == 2:  #倒置
                 final_s = session_features * final_s_intra + (1 - session_features) * final_s_inter
             elif use_alternative_final_s == 3: 
-                alpha = self.W_concat(torch.cat([final_s_intra,final_s_inter],dim=-1))
-                alpha_concat = torch.sigmoid(alpha)
-                final_s = alpha_concat * final_s_intra + (1 - alpha_concat) * final_s_inter
-            elif use_alternative_final_s == 4: 
-                alpha = (self.W_sum_1(final_s_intra) + self.W_sum_2(final_s_inter))
-                alpha_sum = torch.sigmoid(alpha)
-                final_s = alpha_sum * final_s_intra + (1 - alpha_sum) * final_s_inter
-            elif use_alternative_final_s == 6: 
                 final_s = self.W_concat(torch.cat([final_s_intra,final_s_inter],dim=-1))
-            elif use_alternative_final_s == 7:
+            elif use_alternative_final_s == 4:
                 final_s = final_s_intra + final_s_inter
-            elif use_alternative_final_s == 8:
+            elif use_alternative_final_s == 5:
                 final_s = torch.max(final_s_intra,final_s_inter)
            
 
@@ -231,5 +199,4 @@ class GraphModel(nn.Module):
             scores = self.e2s(h_s=h_s, h_group=h_group, final_s=None, item_embedding_table=self.embedding)
 
         return scores,  l0_penalty_
-        #return scores, intra_scores, inter_scores, l0_penalty_
 
