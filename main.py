@@ -32,7 +32,6 @@ parser.add_argument('--using_represent', type=str, default='comb', help='comb, h
 parser.add_argument('--predict', type=bool, default=False, help='gat heads number')
 parser.add_argument('--item_fusing', type=bool, default=True, help='gat heads number')
 parser.add_argument('--random_seed', type=int, default=24, help='随机种子')
-parser.add_argument('--id', type=int, default=120, help='邻居会话的上限数量')
 parser.add_argument('--patience', type=int, default=2,help='忍耐上限迭代次数')
 parser.add_argument('--l0_para', nargs='?', default='[0.66, -0.1, 1.1]',
                         help="l0 parameters, which are beta (temprature), zeta (interval_min) and gama (interval_max).")
