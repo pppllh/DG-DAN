@@ -1,5 +1,5 @@
 from model_cleaned.multi_sess import GroupGraph
-from model_cleaned.srgnn0509 import SRGNN
+from model_cleaned.srgnn import SRGNN
 
 import math
 import numpy as np
