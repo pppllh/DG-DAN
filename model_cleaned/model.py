@@ -23,7 +23,7 @@ class Embedding2Score(nn.Module):
             emb =  F.normalize(emb, dim=0,p=2)
             final_s = self.scale * F.normalize(final_s, dim=-1,p=2)
             scores = torch.matmul(final_s, emb)
-            z_i_hat = scores#torch.mm(final_s, emb)  #会发生 NaN or Inf found in input tensor.
+            z_i_hat = scores
         else:
             gate = F.sigmoid(self.W_2(h_s) + self.W_3(h_group))
             sess_rep = h_s * gate + h_group * (1 - gate)
@@ -48,12 +48,12 @@ class CNNFusing(nn.Module):
         self.W_1_inter = nn.Linear(self.hidden_size, self.hidden_size)
         self.W_2_inter = nn.Linear(self.hidden_size, self.hidden_size)
         self.q_inter = nn.Linear(self.hidden_size, 1)
-        self.position_emb = nn.Embedding(max_len+1, self.hidden_size) #注意大小，否则可能发生CUDA设备端的断言错误
+        self.position_emb = nn.Embedding(max_len+1, self.hidden_size)
         self.W_pos_inter = nn.Linear(2 * self.hidden_size, self.hidden_size)
 
     def forward(self, intra_item_emb, inter_item_emb, seq_len, reverse_pos, session_features):
 
-        final_s = self.get_final_s_GCE_GNN(final_emb, seq_len, reverse_pos) #要打开GCE_GNN中的第一行了
+        final_s = self.get_final_s_GCE_GNN(final_emb, seq_len, reverse_pos)
         return final_s
 
 
@@ -61,29 +61,12 @@ class CNNFusing(nn.Module):
         v_mean_repeat = tuple(nodes.mean(dim=0, keepdim=True).repeat(nodes.shape[0], 1) for nodes in hidden)
         v_mean_repeat_concat = torch.cat(v_mean_repeat, dim=0)
         hidden = torch.cat(hidden, dim=0)
-        distinguish = True
-        if distinguish == True:         #重复项目的位置编号是相同的
-            pos_emb = self.position_emb(reverse_pos)  #reverse_pos区分重复出现项目
-        else:
-            reverse_positions = []# 初始化一个空列表用于存储结果 不区分重复出现项目
-            for length in seq_len:
-                reverse_positions.extend(reversed(range(length.item())))  # 根据当前的会话长度生成倒序位置
-            reverse_positions = torch.tensor(reverse_positions).to(self.position_emb.weight.device)  # 不区分重复出现项目
-            pos_emb = self.position_emb(reverse_positions)
-        jiehe_alter = 1  #用于选择位置嵌入和项目嵌入两者之间的结合方式
-        if jiehe_alter == 1:
-            pos_hidden = torch.tanh(self.W_pos_inter(torch.cat([hidden, pos_emb], -1)))  
-        elif jiehe_alter == 2:
-            pos_hidden = self.W_pos_inter(torch.cat([hidden, pos_emb], -1))  
-        elif jiehe_alter == 3:
-            pos_hidden = hidden + pos_emb  
+        distinguish = True   
+        pos_emb = self.position_emb(reverse_pos)  
+        pos_hidden = torch.tanh(self.W_pos_inter(torch.cat([hidden, pos_emb], -1)))  
         alpha = self.q_inter(torch.sigmoid(self.W_1_inter(v_mean_repeat_concat) + self.W_2_inter(pos_hidden))) 
-        use_hidden_agg = True  
-        if use_hidden_agg:
-            s_g_whole = alpha * hidden
-        else:
-            s_g_whole = alpha * pos_hidden
-        s_g_split = torch.split(s_g_whole, tuple(seq_len.cpu().numpy()))  # split whole s_g into graphs G_i
+        s_g_whole = alpha * hidden
+        s_g_split = torch.split(s_g_whole, tuple(seq_len.cpu().numpy())) 
         s_g = tuple(torch.sum(embeddings, dim=0).view(1, -1) for embeddings in s_g_split)
         h_s = torch.cat(s_g, dim=0)
         return h_s
@@ -133,13 +116,11 @@ class GraphModel(nn.Module):
         self.loss_function = nn.CrossEntropyLoss()
         self.reset_parameters()
 
-    def reset_parameters(self):  #均匀分布，好像实际代码中都是说采用这种
+    def reset_parameters(self):  
         stdv = 1.0 / math.sqrt(self.hidden_size)
         for weight in self.parameters():
             weight.data.uniform_(-stdv, stdv)
 
-
-    # rebuilt_sess重构会话序列表示大小为tuple：100 包括tensor（2,100).(3,100)......
     def rebuilt_sess(self, session_embedding, node_num, sess_item_index, seq_lens):
         split_embs = torch.split(session_embedding, tuple(node_num))
         sess_item_index = torch.split(sess_item_index, tuple(seq_lens.cpu().numpy()))
@@ -160,7 +141,7 @@ class GraphModel(nn.Module):
                 all_edge_label, mt_sess_masks, seq_lens,num_count = \
                 data.edge_index, data.mt_edge_count, data.batch, data.mt_node_num, data.mt_sess_item_idx, \
                     data.all_edge_label, data.mt_sess_masks, data.sequence_len, data.num_count
-            reverse_pos = data.reverse_pos #此反向位置重复项目统一相同使用最后一次出现的倒位置
+            reverse_pos = data.reverse_pos
             # 根据local_mt_sess_item_index获得local_xulie_hidden；根据seq_lens生成seq_batch
             v_i = torch.split(embedding, tuple(node_num.cpu().numpy()))  # 将整个 x 切分回图 G_i
             local_xulie_hidden = []
@@ -171,7 +152,7 @@ class GraphModel(nn.Module):
                 sess = v[node_indices[-1]]# 提取每个图的最后一个节点的嵌入表示
                 rebuilt_last_item.append(sess)
             # 拼接所有图的节点嵌入
-            local_xulie_hidden = torch.cat(local_xulie_hidden, dim=0)  # 新增，以便直接使用 global_mean_pool 方法
+            local_xulie_hidden = torch.cat(local_xulie_hidden, dim=0) 
             # 生成 seq_batch
             seq_lens_device = seq_lens.to(local_xulie_hidden.device)
             seq_batch = torch.repeat_interleave(torch.arange(len(seq_lens_device), device=local_xulie_hidden.device),seq_lens_device)
@@ -189,10 +170,6 @@ class GraphModel(nn.Module):
             #（全局）
             inter_hidden, inter_item_emb, l0_penalty_ = self.group_graph.forward(i,epoch,embedding, data, local_sess_avg,rebuilt_last_item ,is_training=is_training)
 
-            # (验证单局部图/单全局图时用下一行)
-            # final_s = self.cnn_fusing.get_final_s_GCE_GNN(inter_item_emb, data.sequence_len, data.reverse_pos) # HG_GNN,用此行时，记得去注释get_final_s的第一行
-
-            ####################################################################################
             final_s_intra = self.cnn_fusing.get_final_s_GCE_GNN(intra_item_emb,data.sequence_len, data.reverse_pos) # tensor(B,dim)
             final_s_inter = self.cnn_fusing.get_final_s_GCE_GNN(inter_item_emb, data.sequence_len, data.reverse_pos) # tensor(B,dim)
             #得到会话个性化的session_features
@@ -206,7 +183,7 @@ class GraphModel(nn.Module):
                                                    device=v_last.device)  # (B,)
                     coo_input_1 = v_mean - v_last
                     coo_input = torch.cat([coo_input_1, self.length_emb(session_lengths)],dim=-1)  # (B, 2*dim )
-                    coo = torch.sigmoid(self.W_coo_15(coo_input))#.view(-1, 1) #输出（100，100） #不同的输入，使用不同维度的线性层,去改self.W_coo_15
+                    coo = torch.sigmoid(self.W_coo_15(coo_input))#.view(-1, 1) 
               
                 elif use_alternative_coo == 5:  #1111replace
                     coo = torch.ones(len(intra_item_emb), 1).to(final_s_intra.device)  # 全 1
