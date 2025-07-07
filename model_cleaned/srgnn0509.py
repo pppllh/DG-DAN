@@ -73,7 +73,7 @@ class SRGNN(nn.Module):
             return hidden, self.get_h_s(sess_embs, seq_len)
 
 ####################################################################################################
-class LocalAggregator(MessagePassing):  #beta new_beta
+class LocalAggregator(MessagePassing):  
     def __init__(self, dim):
         super(LocalAggregator, self).__init__(aggr='add')   #指定聚合方式为求和
         self.sigmoid = nn.Sigmoid()
@@ -95,10 +95,8 @@ class LocalAggregator(MessagePassing):  #beta new_beta
             is_training = is_training,
             flow="source_to_target", use_forward=True)
 
-        # Combine the results (e.g., summing forward and backward messages)
         update_nodes = forward_nodes
         return update_nodes
-        # forward 方法中调用 self.propagate 时，会依次执行 message、aggregate 和 update 方法
 
     def message(self, data,x, x_i, x_j, edge_index_i, edge_index_j, local_sess_avg,rebuilt_last_item,mt_sess_masks, batch, edge_weight, node_frequency,is_training,flow, use_forward):
         edge_index = torch.stack((edge_index_j, edge_index_i), dim=0)
@@ -115,17 +113,11 @@ class LocalAggregator(MessagePassing):  #beta new_beta
         use_session_mean_as_alpha_query = True#False#
         session_mean_i = local_sess_avg[batch[new_edge_index_i]]   
         alpha_query = session_mean_i
-        node_frequency_i = node_frequency[edge_index_i]  # 获取目标节点的频率
-        use_alpha = True#False#
-        alpha_attention_use_weight =False# True #   
-        if use_alpha and alpha_attention_use_weight:
-            alpha = F.leaky_relu(self.W_alpha_attention(expanded_x_i * alpha_query * node_frequency_i.unsqueeze(-1)))  
-        elif use_alpha and not alpha_attention_use_weight:
-            alpha = F.leaky_relu(self.W_alpha_attention(expanded_x_i * alpha_query)) 
+        alpha = F.leaky_relu(self.W_alpha_attention(expanded_x_i * alpha_query)) 
         beta = (F.leaky_relu(self.W_forward(x_i * x_j)))
         reversed_beta = (F.leaky_relu(self.W_backward(x[reversed_edge_index_j] * x[reversed_edge_index_i])))
         new_beta = torch.cat([beta,reversed_beta])
-        final_E = new_beta  + alpha    #直接相加
+        final_E = new_beta  + alpha  
         aij = softmax(final_E, new_edge_index_i)  # [Ei,1]  
         pairwise_analysis = (aij * (expanded_x_j))
         return pairwise_analysis, reversed_edge_index_i
